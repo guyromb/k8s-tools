@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+WATCH=${1}
+REMOTE_PATH=${2}
+
+
+INPUT_EXAMPLE="watcher.sh <path/to/watch> <namespace/pod:/var/www>"
+
+if test -z $WATCH
+then
+    echo "PATH TO WATCH IS MISSING [$INPUT_EXAMPLE]"
+    exit 1;
+fi
+
+cd $WATCH
+WATCH=$(pwd)
+
+if test -z $REMOTE_PATH
+then
+    echo "DESTINATION PATH IS MISSING [$INPUT_EXAMPLE]"
+    exit 1;
+fi
+
+fswatch --batch-marker=EOF -xn $WATCH | while read file event; do
+    if [ $file = "EOF" ]; then
+#       echo Files: "${list[@]}"
+       list=()
+    else
+       ext="${file##*.}"
+       if [[ "$ext" =~ ^(php|js|css|env)$ ]]; then
+           LOCAL_PATH=$(dirname "${file}")
+           FILENAME=$(basename "${file}")
+           RELATIVE=$(dirname "${WATCH}")
+           DESTINATION_PATH="${file/$WATCH/$REMOTE_PATH}"
+           echo "Syncing $file to $DESTINATION_PATH"
+           kubectl cp $file $DESTINATION_PATH
+           list+=($file)
+       fi
+    fi
+done

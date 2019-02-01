@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+K8S_TEMPLATE_PATH=${1%/}
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+    -n|--namespace)
+    NAMESPACE="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -s|--skip-rollout-status)
+    SKIP_ROLLOUT_STATUS="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -t|--tag)
+    DOCKER_TAG="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -d|--dry-run)
+    DRY_RUN="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    *)    # unknown option
+    POSITIONAL+=("$1") # save it in an array for later
+    shift # past argument
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+
+INPUT_EXAMPLE="deploy.sh <path/to/kustomization/overlay> <args -n -t -s>"
+
+if test -z $K8S_TEMPLATE_PATH
+then
+    echo "PATH MISSING [$INPUT_EXAMPLE]"
+    exit 1;
+fi
+
+if [ -f "${K8S_TEMPLATE_PATH}" ]
+then echo "${K8S_TEMPLATE_PATH} is a file. A directory has to be given."; exit 1;
+fi
+
+if test -z $NAMESPACE
+then
+    NAMESPACE="default"
+fi
+
+if test -z $DOCKER_TAG
+then
+    DOCKER_TAG="latest"
+fi
+
+# Dependencies
+if ! type "kubectl" > /dev/null; then
+    exit;
+fi
+
+if ! type "kustomize" > /dev/null; then
+    exit;
+fi
+
+if ! type "envsubst" > /dev/null; then
+    exit;
+fi
+
+# Execution
+OVERLAY_NAME="$(basename $K8S_TEMPLATE_PATH)"
+TAG_HASH="$(echo -n "$DOCKER_TAG" | openssl sha1)"
+K8S_GENERATED_TEMPLATE=".generated/$(basename $K8S_TEMPLATE_PATH)-$NAMESPACE-$TAG_HASH-$(date +%Y%m%d%H%M%S).yaml"
+#echo NAMESPACE="${NAMESPACE}" DOCKER_TAG="${DOCKER_TAG}" K8S_GENERATED_TEMPLATE_PATH="${K8S_GENERATED_TEMPLATE}"
+
+mkdir -p ".generated/"
+export NAMESPACE="$(echo -n "$NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+export DOCKER_TAG="$(echo -n "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')"
+kustomize build $K8S_TEMPLATE_PATH | envsubst '${NAMESPACE},${DOCKER_TAG}' > $K8S_GENERATED_TEMPLATE
+if ! test -z $DRY_RUN || [[ $NAMESPACE == *'pr-'* ]] ; then
+    kubectl create namespace $NAMESPACE --dry-run
+    kubectl apply -f $K8S_GENERATED_TEMPLATE --dry-run
+    exit 0;
+else
+    kubectl create namespace $NAMESPACE
+    kubectl apply -f $K8S_GENERATED_TEMPLATE
+fi
+
+echo  "$K8S_GENERATED_TEMPLATE has been applied.";
+
+if ! test -z $SKIP_ROLLOUT_STATUS
+then
+    echo "Skip waiting for rollout status";
+    exit;
+fi
+
+# Get roll out status
+kubectl rollout status deployment $OVERLAY_NAME-app -n $NAMESPACE
