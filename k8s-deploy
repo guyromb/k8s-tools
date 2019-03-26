@@ -26,6 +26,16 @@ case $key in
     shift # past argument
     shift # past value
     ;;
+    -c|--context)
+    CONTEXT="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -y|--deployment)
+    DEPLOYMENT="$2"
+    shift # past argument
+    shift # past value
+    ;;
     *)    # unknown option
     POSITIONAL+=("$1") # save it in an array for later
     shift # past argument
@@ -35,7 +45,7 @@ done
 set -- "${POSITIONAL[@]}" # restore positional parameters
 
 
-INPUT_EXAMPLE="deploy.sh <path/to/kustomization/overlay> <args -n -t -s>"
+INPUT_EXAMPLE="deploy.sh <path/to/kustomization/overlay> <args -n -t -s -c -y>"
 
 if test -z $K8S_TEMPLATE_PATH
 then
@@ -52,9 +62,19 @@ then
     NAMESPACE="default"
 fi
 
+if ! test -z $CONTEXT
+then
+    CONTEXT="--context ${CONTEXT}"
+fi
+
 if test -z $DOCKER_TAG
 then
     DOCKER_TAG="latest"
+fi
+
+if test -z $DEPLOYMENT
+then
+    DEPLOYMENT="$(basename $K8S_TEMPLATE_PATH)-app"
 fi
 
 # Dependencies
@@ -71,22 +91,22 @@ if ! type "envsubst" > /dev/null; then
 fi
 
 # Execution
-OVERLAY_NAME="$(basename $K8S_TEMPLATE_PATH)"
+export NAMESPACE="$(echo -n "$NAMESPACE" | sed -e "s/\\//-/" | tr '[:upper:]' '[:lower:]')"
+export DOCKER_TAG="$(echo -n "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')"
 TAG_HASH="$(echo -n "$DOCKER_TAG" | openssl sha1)"
+
 K8S_GENERATED_TEMPLATE=".generated/$(basename $K8S_TEMPLATE_PATH)-$NAMESPACE-$TAG_HASH-$(date +%Y%m%d%H%M%S).yaml"
 #echo NAMESPACE="${NAMESPACE}" DOCKER_TAG="${DOCKER_TAG}" K8S_GENERATED_TEMPLATE_PATH="${K8S_GENERATED_TEMPLATE}"
-
 mkdir -p ".generated/"
-export NAMESPACE="$(echo -n "$NAMESPACE" | tr '[:upper:]' '[:lower:]')"
-export DOCKER_TAG="$(echo -n "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')"
+
 kustomize build $K8S_TEMPLATE_PATH | envsubst '${NAMESPACE},${DOCKER_TAG}' > $K8S_GENERATED_TEMPLATE
 if ! test -z $DRY_RUN || [[ $NAMESPACE == *'pr-'* ]] ; then
     kubectl create namespace $NAMESPACE --dry-run
     kubectl apply -f $K8S_GENERATED_TEMPLATE --dry-run
     exit 0;
 else
-    kubectl create namespace $NAMESPACE
-    kubectl apply -f $K8S_GENERATED_TEMPLATE
+    kubectl create namespace $NAMESPACE $CONTEXT
+    kubectl apply -f $K8S_GENERATED_TEMPLATE $CONTEXT
 fi
 
 echo  "$K8S_GENERATED_TEMPLATE has been applied.";
@@ -98,4 +118,4 @@ then
 fi
 
 # Get roll out status
-kubectl rollout status deployment $OVERLAY_NAME-app -n $NAMESPACE
+kubectl rollout status deployment $DEPLOYMENT -n $NAMESPACE $CONTEXT

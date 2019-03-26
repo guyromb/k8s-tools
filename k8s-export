@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+    -n|--namespace)
+    NAMESPACE="-n $2"
+    shift # past argument
+    shift # past value
+    ;;
+    --release-name)
+    RELEASE_NAME="--selector release=$2"
+    shift # past argument
+    shift # past value
+    ;;
+    *)    # unknown option
+    POSITIONAL+=("$1") # save it in an array for later
+    shift # past argument
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+for n in $(kubectl get -o=name pvc,configmap,serviceaccount,secret,ingress,service,deployment,statefulset,hpa,job,cronjob ${NAMESPACE} ${RELEASE_NAME})
+do
+    mkdir -p $(pwd)/.exports/$(dirname $n)
+    kubectl get ${NAMESPACE} -o=yaml --export $n > $(pwd)/.exports/$n.yaml
+done
