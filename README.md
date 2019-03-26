@@ -1,4 +1,4 @@
-# K8s-tools
+# OneFit K8s-tools (samples)
 Deploy:
 This tool allows you to build Kustomize overlays with placeholders, deploy to google cloud, with status monitoring.
 Watch:
